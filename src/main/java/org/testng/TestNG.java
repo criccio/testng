@@ -18,6 +18,7 @@ import org.testng.internal.IResultListener2;
 import org.testng.internal.OverrideProcessor;
 import org.testng.internal.SuiteRunnerMap;
 import org.testng.internal.Utils;
+import org.testng.internal.Version;
 import org.testng.internal.annotations.DefaultAnnotationTransformer;
 import org.testng.internal.annotations.IAnnotationFinder;
 import org.testng.internal.annotations.JDK15AnnotationFinder;
@@ -52,7 +53,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -186,6 +186,8 @@ public class TestNG {
 
   private List<IExecutionListener> m_executionListeners = Lists.newArrayList();
 
+  private boolean m_isInitialized = false;
+
   /**
    * Default constructor. Setting also usage of default listeners/reporters.
    */
@@ -264,31 +266,34 @@ public class TestNG {
   public void initializeSuitesAndJarFile() {
     // The Eclipse plug-in (RemoteTestNG) might have invoked this method already
     // so don't initialize suites twice.
+    if (m_isInitialized) {
+      return;
+    }
+
+    m_isInitialized = true;
     if (m_suites.size() > 0) {
     	//to parse the suite files (<suite-file>), if any
-    	for (XmlSuite s: m_suites){
-	        List<String> suiteFiles = s.getSuiteFiles();
-			for (int i = 0; i < suiteFiles.size(); i++) {
-				try {
-					Collection<XmlSuite> childSuites = getParser(suiteFiles.get(i)).parse();
-					for (XmlSuite cSuite : childSuites){
-						cSuite.setParentSuite(s);
-						s.getChildSuites().add(cSuite);
-					}
-				}
-				catch(FileNotFoundException e) {
-					e.printStackTrace(System.out);
-				}
-				catch (ParserConfigurationException e) {
-					e.printStackTrace(System.out);
-				} catch (SAXException e) {
-					e.printStackTrace(System.out);
-				} catch (IOException e) {
-					e.printStackTrace(System.out);
-				}
-
-
-			}
+    	for (XmlSuite s: m_suites) {
+	      List<String> suiteFiles = s.getSuiteFiles();
+  			for (int i = 0; i < suiteFiles.size(); i++) {
+  				try {
+  					Collection<XmlSuite> childSuites = getParser(suiteFiles.get(i)).parse();
+  					for (XmlSuite cSuite : childSuites){
+  						cSuite.setParentSuite(s);
+  						s.getChildSuites().add(cSuite);
+  					}
+  				}
+  				catch(FileNotFoundException e) {
+  					e.printStackTrace(System.out);
+  				}
+  				catch (ParserConfigurationException e) {
+  					e.printStackTrace(System.out);
+  				} catch (SAXException e) {
+  					e.printStackTrace(System.out);
+  				} catch (IOException e) {
+  					e.printStackTrace(System.out);
+  				}
+  			}
 
     	}
       return;
@@ -358,10 +363,7 @@ public class TestNG {
     File jarFile = new File(m_jarPath);
 
     try {
-      URL jarfileUrl = jarFile.getCanonicalFile().toURI().toURL();
-      URLClassLoader jarLoader = new URLClassLoader(new URL[] { jarfileUrl });
-      Thread.currentThread().setContextClassLoader(jarLoader);
-
+ 
       Utils.log("TestNG", 2, "Trying to open jar file:" + jarFile);
 
       JarFile jf = new JarFile(jarFile);
@@ -1101,8 +1103,12 @@ public class TestNG {
   public List<ISuite> runSuitesLocally() {
     SuiteRunnerMap suiteRunnerMap = new SuiteRunnerMap();
     if (m_suites.size() > 0) {
-       // First initialize the suite runners to ensure there are no configuration issues.
-       // Create a map with XmlSuite as key and corresponding SuiteRunner as value
+      if (m_suites.get(0).getVerbose() >= 2) {
+        Version.displayBanner();
+      }
+
+      // First initialize the suite runners to ensure there are no configuration issues.
+      // Create a map with XmlSuite as key and corresponding SuiteRunner as value
       for (XmlSuite xmlSuite : m_suites) {
         createSuiteRunners(suiteRunnerMap, xmlSuite);
       }
@@ -1139,9 +1145,9 @@ public class TestNG {
           pooledExecutor.awaitTermination(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
           pooledExecutor.shutdownNow();
         }
-        catch (InterruptedException e) {
+        catch (InterruptedException handled) {
           Thread.currentThread().interrupt();
-          error("Error waiting for concurrent executors to finish " + e.getMessage());
+          error("Error waiting for concurrent executors to finish " + handled.getMessage());
         }
       }
     }

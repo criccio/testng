@@ -1,9 +1,11 @@
 package org.testng.xml;
 
 import org.testng.TestNG;
+import org.testng.TestNGException;
 import org.testng.collections.Lists;
 import org.testng.collections.Maps;
 import org.testng.reporters.XMLStringBuffer;
+import org.testng.xml.dom.ParentSetter;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -19,9 +21,6 @@ import java.util.UUID;
  * @author <a href = 'mailto:the_mindstorm[at]evolva[dot]ro'>Alexandru Popescu</a>
  */
 public class XmlTest implements Serializable, Cloneable {
-  /**
-   *
-   */
   private static final long serialVersionUID = 6533504325942417606L;
 
   public static int DEFAULT_TIMEOUT_MS = Integer.MAX_VALUE;
@@ -56,6 +55,8 @@ public class XmlTest implements Serializable, Cloneable {
   private Boolean m_groupByInstances;
 
   private Boolean m_allowReturnValues = null;
+
+  private Map<String, String> m_xmlDependencyGroups = Maps.newHashMap();
 
   /**
    * Constructs a <code>XmlTest</code> and adds it to suite's list of tests.
@@ -124,8 +125,15 @@ public class XmlTest implements Serializable, Cloneable {
    * Note: do not modify the returned value, use {@link #addIncludedGroup(String)}.
    */
   public List<String> getIncludedGroups() {
-    List<String> result = new ArrayList(m_includedGroups);
-    result.addAll(m_suite.getIncludedGroups());
+    List<String> result;
+    if (m_xmlGroups != null) {
+      result = m_xmlGroups.getRun().getIncludes();
+      result.addAll(m_suite.getIncludedGroups());
+    } else {
+      // deprecated
+      result = Lists.newArrayList(m_includedGroups);
+      result.addAll(m_suite.getIncludedGroups());
+    }
     return result;
   }
 
@@ -310,7 +318,17 @@ public class XmlTest implements Serializable, Cloneable {
    * @return Returns the metaGroups.
    */
   public Map<String, List<String>> getMetaGroups() {
-    return m_metaGroups;
+    if (m_xmlGroups != null) {
+      Map<String, List<String>> result = Maps.newHashMap();
+      List<XmlDefine> defines = m_xmlGroups.getDefines();
+      for (XmlDefine xd : defines) {
+        result.put(xd.getName(), xd.getIncludes());
+      }
+      return result;
+    } else {
+      // deprecated
+      return m_metaGroups;
+    }
   }
 
   /**
@@ -334,12 +352,9 @@ public class XmlTest implements Serializable, Cloneable {
   }
 
   /**
-   * Returns a merge of the the test parameters and its parent suite parameters. Test parameters
-   * have precedence over suite parameters.
-   *
-   * @return a merge of the the test parameters and its parent suite parameters.
+   * @return the parameters defined in this test tag and the tags above it.
    */
-  public Map<String, String> getParameters() {
+  public Map<String, String> getAllParameters() {
     Map<String, String> result = Maps.newHashMap();
     Map<String, String> parameters = getSuite().getParameters();
     for (Map.Entry<String, String> parameter : parameters.entrySet()) {
@@ -349,6 +364,22 @@ public class XmlTest implements Serializable, Cloneable {
       result.put(key, m_parameters.get(key));
     }
     return result;
+  }
+
+  /**
+   * @return the parameters defined in this tag, and only this test tag. To retrieve
+   * the inherited parameters as well, call {@code getAllParameters()}.
+   */
+  public Map<String, String> getLocalParameters() {
+    return m_parameters;
+  }
+
+  /**
+   * @deprecated Use {@code getLocalParameters()} or {@code getAllParameters()}
+   */
+  @Deprecated
+  public Map<String, String> getParameters() {
+    return getAllParameters();
   }
 
   /**
@@ -440,7 +471,7 @@ public class XmlTest implements Serializable, Cloneable {
     if (null != m_timeOut) {
       p.setProperty("time-out", m_timeOut.toString());
     }
-    if (m_preserveOrder != null) {
+    if (m_preserveOrder != null && ! XmlSuite.DEFAULT_PRESERVE_ORDER.equals(m_preserveOrder)) {
       p.setProperty("preserve-order", m_preserveOrder.toString());
     }
     if (m_threadCount != -1) {
@@ -459,18 +490,11 @@ public class XmlTest implements Serializable, Cloneable {
       xsb.pop("method-selectors");
     }
 
-    // parameters
-    if (!m_parameters.isEmpty()) {
-      for(Map.Entry<String, String> para: m_parameters.entrySet()) {
-        Properties paramProps= new Properties();
-        paramProps.setProperty("name", para.getKey());
-        paramProps.setProperty("value", para.getValue());
-        xsb.addEmptyElement("parameter", paramProps); // BUGFIX: TESTNG-27
-      }
-    }
+    XmlUtils.dumpParameters(xsb, m_parameters);
 
     // groups
-    if (!m_metaGroups.isEmpty() || !m_includedGroups.isEmpty() || !m_excludedGroups.isEmpty()) {
+    if (!m_metaGroups.isEmpty() || !m_includedGroups.isEmpty() || !m_excludedGroups.isEmpty()
+        || !m_xmlDependencyGroups.isEmpty()) {
       xsb.push("groups");
 
       // define
@@ -490,6 +514,7 @@ public class XmlTest implements Serializable, Cloneable {
         xsb.pop("define");
       }
 
+      // run
       if (!m_includedGroups.isEmpty() || !m_excludedGroups.isEmpty()) {
         xsb.push("run");
 
@@ -508,6 +533,15 @@ public class XmlTest implements Serializable, Cloneable {
         }
 
         xsb.pop("run");
+      }
+
+      // group dependencies
+      if (m_xmlDependencyGroups != null && ! m_xmlDependencyGroups.isEmpty()) {
+        xsb.push("dependencies");
+        for (Map.Entry<String, String> entry : m_xmlDependencyGroups.entrySet()) {
+          xsb.addEmptyElement("group", "name", entry.getKey(), "depends-on", entry.getValue());
+        }
+        xsb.pop("dependencies");
       }
 
       xsb.pop("groups");
@@ -611,7 +645,7 @@ public class XmlTest implements Serializable, Cloneable {
     result.setJUnit(isJUnit());
     result.setParallel(getParallel());
     result.setVerbose(getVerbose());
-    result.setParameters(getParameters());
+    result.setParameters(getLocalParameters());
     result.setXmlPackages(getXmlPackages());
 
     Map<String, List<String>> metagroups = getMetaGroups();
@@ -821,4 +855,37 @@ public class XmlTest implements Serializable, Cloneable {
     return true;
   }
 
+  public void addXmlDependencyGroup(String group, String dependsOn) {
+    if (! m_xmlDependencyGroups.containsKey(group)) {
+      m_xmlDependencyGroups.put(group, dependsOn);
+    } else {
+      throw new TestNGException("Duplicate group dependency found for group \"" + group + "\""
+          + ", use a space-separated list of groups in the \"depends-on\" attribute");
+    }
+  }
+
+  public Map<String, String> getXmlDependencyGroups() {
+    if (m_xmlGroups != null) {
+      Map<String, String> result = Maps.newHashMap();
+      List<XmlDependencies> deps = m_xmlGroups.getDependencies();
+      for (XmlDependencies d : deps) {
+        result.putAll(d.getDependencies());
+      }
+      return result;
+    } else {
+      // deprecated
+      return m_xmlDependencyGroups;
+    }
+  }
+
+  @ParentSetter
+  public void setXmlSuite(XmlSuite suite) {
+	  m_suite = suite;
+  }
+
+  private XmlGroups m_xmlGroups;
+
+  public void setGroups(XmlGroups xmlGroups) {
+    m_xmlGroups = xmlGroups;
+  }
 }

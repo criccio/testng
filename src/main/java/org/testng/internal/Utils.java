@@ -28,6 +28,7 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -494,7 +495,10 @@ public final class Utils {
     return !isStringEmpty(s);
   }
 
-  public static String[] stackTrace(Throwable t, boolean tohtml) {
+  /**
+   * @return an array of two strings: the short stack trace and the long stack trace.
+   */
+  public static String[] stackTrace(Throwable t, boolean toHtml) {
     StringWriter sw = new StringWriter();
     PrintWriter pw = new PrintWriter(sw);
     t.printStackTrace(pw);
@@ -505,14 +509,13 @@ public final class Utils {
 
     if (Boolean.getBoolean(TestNG.SHOW_TESTNG_STACK_FRAMES) || TestRunner.getVerbose() >= 2) {
       shortStackTrace = fullStackTrace;
-    }
-    else {
+    } else {
       shortStackTrace = filterTrace(sw.getBuffer().toString());
     }
 
-    if (tohtml) {
+    if (toHtml) {
       shortStackTrace = escapeHtml(shortStackTrace);
-      fullStackTrace = fullStackTrace.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+      fullStackTrace = escapeHtml(fullStackTrace);
     }
 
     return new String[] {
@@ -520,9 +523,7 @@ public final class Utils {
     };
   }
 
-  private static final Map<Character, String> ESCAPES = new HashMap<Character, String>() {/**
-     *
-     */
+  private static final Map<Character, String> ESCAPES = new HashMap<Character, String>() {
     private static final long serialVersionUID = 1285607660247157523L;
 
   {
@@ -530,6 +531,7 @@ public final class Utils {
     put('>', "&gt;");
     put('\'', "&apos;");
     put('"', "&quot;");
+    put('&', "&amp;");
   }};
 
   public static String escapeHtml(String s) {
@@ -721,6 +723,10 @@ public final class Utils {
       sb.append(iterator.next());
     }
     return sb.toString();
+  }
+
+  public static String join(String[] s, String separator) {
+    return joinStrings(Arrays.asList(s), separator + " ");
   }
 
   public static String join(List<String> s, String separator) {

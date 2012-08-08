@@ -42,6 +42,7 @@ public class TestNGContentHandler extends DefaultHandler {
   private List<String> m_currentExcludedGroups = null;
   private Map<String, String> m_currentTestParameters = null;
   private Map<String, String> m_currentSuiteParameters = null;
+  private Map<String, String> m_currentClassParameters = null;
   private Include m_currentInclude;
   private List<String> m_currentMetaGroup = null;
   private String m_currentMetaGroupName;
@@ -49,6 +50,7 @@ public class TestNGContentHandler extends DefaultHandler {
   enum Location {
     SUITE,
     TEST,
+    CLASS,
     INCLUDE
   }
   private Stack<Location> m_locations = new Stack<Location>();
@@ -122,7 +124,7 @@ public class TestNGContentHandler extends DefaultHandler {
     }
     else {
       m_currentSuite.setSuiteFiles(m_suiteFiles);
-      popLocation();
+      popLocation(Location.SUITE);
     }
   }
 
@@ -133,6 +135,9 @@ public class TestNGContentHandler extends DefaultHandler {
     if (start) {
       pushLocation(Location.SUITE);
       String name = attributes.getValue("name");
+      if (isStringBlank(name)) {
+        throw new TestNGException("The <suite> tag must define the name attribute");
+      }
       m_currentSuite = new XmlSuite();
       m_currentSuite.setFileName(m_fileName);
       m_currentSuite.setName(name);
@@ -202,7 +207,7 @@ public class TestNGContentHandler extends DefaultHandler {
       m_currentSuite.setParameters(m_currentSuiteParameters);
       m_suites.add(m_currentSuite);
       m_currentSuiteParameters = null;
-      popLocation();
+      popLocation(Location.SUITE);
     }
   }
 
@@ -253,7 +258,7 @@ public class TestNGContentHandler extends DefaultHandler {
       m_currentTestParameters = Maps.newHashMap();
       final String testName= attributes.getValue("name");
       if(isStringBlank(testName)) {
-        throw new TestNGException("Test <test> element must define the name attribute");
+        throw new TestNGException("The <test> tag must define the name attribute");
       }
       m_currentTest.setName(attributes.getValue("name"));
       String verbose = attributes.getValue("verbose");
@@ -309,7 +314,7 @@ public class TestNGContentHandler extends DefaultHandler {
       m_currentClasses = null;
       m_currentTest = null;
       m_currentTestParameters = null;
-      popLocation();
+      popLocation(Location.TEST);
       if(!m_enabledTest) {
         List<XmlTest> tests= m_currentSuite.getTests();
         tests.remove(tests.size() - 1);
@@ -376,8 +381,8 @@ public class TestNGContentHandler extends DefaultHandler {
           case SUITE:
             m_currentSuite.setXmlPackages(m_currentPackages);
             break;
-          case INCLUDE:
-            throw new UnsupportedOperationException("INCLUDE");
+          case CLASS:
+            throw new UnsupportedOperationException("CLASS");
         }
       }
 
@@ -470,6 +475,17 @@ public class TestNGContentHandler extends DefaultHandler {
     }
   }
 
+
+  /**
+   * Parse <group>
+   */
+  public void xmlGroup(boolean start, Attributes attributes) throws SAXException {
+    if (start) {
+      m_currentTest.addXmlDependencyGroup(attributes.getValue("name"),
+          attributes.getValue("depends-on"));
+    }
+  }
+
   /**
    * NOTE: I only invoke xml*methods (e.g. xmlSuite()) if I am acting on both
    * the start and the end of the tag. This way I can keep the treatment of
@@ -521,7 +537,10 @@ public class TestNGContentHandler extends DefaultHandler {
       // can finish parsing the file.
       if (null != m_currentClasses) {
         m_currentClass = new XmlClass(name, m_currentClassIndex++, m_loadClasses);
+        m_currentClass.setXmlTest(m_currentTest);
+        m_currentClassParameters = Maps.newHashMap();
         m_currentClasses.add(m_currentClass);
+        pushLocation(Location.CLASS);
       }
     }
     else if ("package".equals(qName)) {
@@ -536,6 +555,9 @@ public class TestNGContentHandler extends DefaultHandler {
     }
     else if ("run".equals(qName)) {
       xmlRun(true, attributes);
+    }
+    else if ("group".equals(qName)) {
+      xmlGroup(true, attributes);
     }
     else if ("groups".equals(qName)) {
       m_currentIncludedGroups = Lists.newArrayList();
@@ -567,8 +589,12 @@ public class TestNGContentHandler extends DefaultHandler {
         case SUITE:
           m_currentSuiteParameters.put(name, value);
           break;
+        case CLASS:
+          m_currentClassParameters.put(name, value);
+          break;
         case INCLUDE:
           m_currentInclude.parameters.put(name, value);
+          break;
       }
     }
   }
@@ -577,16 +603,19 @@ public class TestNGContentHandler extends DefaultHandler {
     String name;
     String invocationNumbers;
     String description;
-    Map<String, String> parameters;
+    Map<String, String> parameters = Maps.newHashMap();
+
+    public Include(String name, String numbers) {
+      this.name = name;
+      this.invocationNumbers = numbers;
+    }
   }
 
   private void xmlInclude(boolean start, Attributes attributes) {
     if (start) {
-      m_currentInclude = new Include();
-      m_currentInclude.name = attributes.getValue("name");
-      m_currentInclude.parameters = Maps.newHashMap();
-      m_currentInclude.invocationNumbers = attributes.getValue("invocation-numbers");
-      pushLocation(Location.INCLUDE);
+      m_locations.push(Location.INCLUDE);
+      m_currentInclude = new Include(attributes.getValue("name"),
+          attributes.getValue("invocation-numbers"));
     } else {
       String name = m_currentInclude.name;
       if (null != m_currentIncludedMethods) {
@@ -597,7 +626,10 @@ public class TestNGContentHandler extends DefaultHandler {
         } else {
           include = new XmlInclude(name, m_currentIncludeIndex++);
         }
-        include.setParameters(m_currentInclude.parameters);
+        for (Map.Entry<String, String> entry : m_currentInclude.parameters.entrySet()) {
+          include.addParameter(entry.getKey(), entry.getValue());
+        }
+
         include.setDescription(m_currentInclude.description);
         m_currentIncludedMethods.add(include);
       }
@@ -610,8 +642,9 @@ public class TestNGContentHandler extends DefaultHandler {
       else if (null != m_currentPackage) {
         m_currentPackage.getInclude().add(name);
       }
+
+      popLocation(Location.INCLUDE);
       m_currentInclude = null;
-      popLocation();
     }
   }
 
@@ -619,7 +652,7 @@ public class TestNGContentHandler extends DefaultHandler {
     m_locations.push(l);
   }
 
-  private Location popLocation() {
+  private Location popLocation(Location location) {
     return m_locations.pop();
   }
 
@@ -655,8 +688,13 @@ public class TestNGContentHandler extends DefaultHandler {
     else if ("classes".equals(qName)) {
       xmlClasses(false, null);
     }
-    else if ("classes".equals(qName)) {
+    else if ("packages".equals(qName)) {
       xmlPackages(false, null);
+    }
+    else if ("class".equals(qName)) {
+      m_currentClass.setParameters(m_currentClassParameters);
+      m_currentClassParameters = null;
+      popLocation(Location.CLASS);
     }
     else if ("listeners".equals(qName)) {
       xmlListeners(false, null);

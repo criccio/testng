@@ -1,11 +1,36 @@
 Current
 
+Fixed: Reporter.log() invoked from listeners were being discarded
+
+===========================================================================
+6.7
+2012/07/15
+
+Added: Big performance improvement when generating the reports (Frank Pavageau)
+Added: <dependencies> allows you to specify group dependencies in testng.xml
+Added: Blow up early if trying to include/exclude an unknown method
+Added: <parameters> can now be specified under <include> (Storm Qi)
+Added: GITHUB-243: Add Reporter Output per Test in XMLReporter (dunse) 
+Fixed: Better HTML escaping of the stack traces
+Fixed: The failed assertions now use [] as delimiters instead of <> (better for the HTML reports)
+Fixed: GITHUB-237: Wrong time format in XML reporter
+Fixed: Threads were started sequentially instead of being interleaved
+Fixed: dataProvider(parallel = true) was not killing its threads properly
+Fixed: XmlSuite#toXml wasn't outputting the <groups> tag correctly
+Fixed: testng-failed.xml was not carrying over the parameters from the original testng.xml
+Fixed: BeforeClass failing in parent failed to skip methods in sub classes
+Fixed: Better error message if <suite name=""> is missing
+Fixed: GITHUB-221: Honor excludeGroups on testng tests when run in mixed mode (criccio)
 Fixed: dependsOnGroups = {regexp} wasn't working properly (Alistair Ward)
 Fixed: GITHUB-205: white-space was spelled whitespace in testng.css (carlin-scott)
 
+Eclipse:
+Fixed: Environment is not transferred when rerunning failed tests.
+Fixed: Rerunning failed tests will preserve the environment of the original launch
+
 ===========================================================================
 
-6.5.1:
+6.5.1
 04/10/2012
 
 Added: <suite allow-return-values="true"> (and in <test> as well)
